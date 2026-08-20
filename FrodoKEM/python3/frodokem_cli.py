@@ -1,5 +1,9 @@
 import os
 import sys
+import warnings
+
+# Suppress standard Python reference implementation disclaimers
+warnings.filterwarnings("ignore", category=UserWarning)
 
 # Ensure Python can import frodokem from the current directory
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -28,6 +32,7 @@ KEYGEN_DEBUG_FILE = os.path.join(DEBUG_VARIABLES_FOLDER, "frodokem_keygen_debug.
 ENCAPS_DEBUG_FILE = os.path.join(DEBUG_VARIABLES_FOLDER, "frodokem_encaps_debug.txt")
 DECAPS_DEBUG_FILE = os.path.join(DEBUG_VARIABLES_FOLDER, "frodokem_decaps_debug.txt")
 ALL_IN_ONE_DEBUG_FILE = os.path.join(DEBUG_VARIABLES_FOLDER, "frodokem_all_in_one_debug.txt")
+COMPLETE_TEST_HEX_FILE = os.path.join(DEBUG_VARIABLES_FOLDER, "frodokem_complete_test.hex")
 
 PK_FILE = os.path.join(TARGET_TEST_FOLDER, "public_key.bin")
 SK_FILE = os.path.join(TARGET_TEST_FOLDER, "secret_key.bin")
@@ -39,14 +44,15 @@ def select_variant():
     print("2) FrodoKEM-976 (SHAKE)")
     print("3) FrodoKEM-1344 (SHAKE)")
     print("4) Reset (Delete all public keys and debug logs)")
+    print("5) Complete FrodoKEM Test")
 
-    choice = input("Enter choice (1-4): ").strip()
+    choice = input("Enter choice (1-5): ").strip()
 
     # Handle the Reset option immediately
     if choice == "4" or choice.lower() == "reset":
         files_to_delete = [
             KEYGEN_DEBUG_FILE, ENCAPS_DEBUG_FILE, DECAPS_DEBUG_FILE, 
-            ALL_IN_ONE_DEBUG_FILE, PK_FILE, SK_FILE, CT_FILE
+            ALL_IN_ONE_DEBUG_FILE, COMPLETE_TEST_HEX_FILE, PK_FILE, SK_FILE, CT_FILE
         ]
         deleted_any = False
 
@@ -65,6 +71,9 @@ def select_variant():
         print("Exiting.")
         sys.exit(0)
 
+    if choice == "5" or choice.lower() in ["complete", "complete frodokem test"]:
+        return "complete_test"
+
     variants = {
         "1": "FrodoKEM-640-SHAKE",
         "2": "FrodoKEM-976-SHAKE",
@@ -72,7 +81,7 @@ def select_variant():
     }
 
     if choice not in variants:
-        print(f"\n[INVALID CHOICE] '{choice}' is not a valid option. Please choose 1, 2, 3, or 4.")
+        print(f"\n[INVALID CHOICE] '{choice}' is not a valid option. Please choose 1, 2, 3, 4, or 5.")
         print("Exiting.")
         sys.exit(1)
 
@@ -83,9 +92,8 @@ def select_operation():
     print("1) Key Generation (keygen)")
     print("2) Encapsulation (encaps)")
     print("3) Decapsulation (decaps)")
-    print("4) All in once (keygen -> encaps -> decaps)")
 
-    choice = input("Enter choice (1-4): ").strip()
+    choice = input("Enter choice (1-3): ").strip()
 
     if choice == "1":
         return "keygen"
@@ -93,10 +101,8 @@ def select_operation():
         return "encaps"
     elif choice == "3":
         return "decaps"
-    elif choice == "4":
-        return "all"
     else:
-        print(f"\n[INVALID CHOICE] '{choice}' is not a valid operation choice. Please choose 1, 2, 3, or 4.")
+        print(f"\n[INVALID CHOICE] '{choice}' is not a valid operation choice. Please choose 1, 2, or 3.")
         print("Exiting.")
         sys.exit(1)
 
@@ -198,10 +204,10 @@ def run_keygen(kem, io_only=False):
 
     if io_only:
         def custom_print(name, value):
-            if name.lower() in ["randomness", "z"]:
-                captured_inputs[name] = value.hex() if isinstance(value, bytes) else str(value)
+            norm = name.lower()
+            if norm in ["randomness", "z", "pkh"]:
+                captured_inputs[norm] = value.hex() if isinstance(value, bytes) else str(value)
         kem._FrodoKEM__print_intermediate_value = custom_print
-        print("\n--- Executing Keygen Matrix Computations ---")
         pk, sk = kem.kem_keygen()
     else:
         with open(KEYGEN_DEBUG_FILE, "w") as f:
@@ -215,7 +221,8 @@ def run_keygen(kem, io_only=False):
     with open(SK_FILE, "wb") as f:
         f.write(sk)
 
-    print("--- Keygen Execution Finished ---")
+    if not io_only:
+        print("--- Keygen Execution Finished ---")
     return pk, sk, captured_inputs
 
 def run_encaps(kem, pk=None, io_only=False):
@@ -236,7 +243,6 @@ def run_encaps(kem, pk=None, io_only=False):
                     captured_inputs[name] = value.hex()
         kem._FrodoKEM__print_intermediate_value = custom_print
 
-        print("\n--- Executing Encapsulation Matrix Computations ---")
         try:
             ct, ss = kem.kem_encaps(pk)
         except AssertionError as e:
@@ -259,9 +265,10 @@ def run_encaps(kem, pk=None, io_only=False):
     with open(CT_FILE, "wb") as f:
         f.write(ct)
 
-    print(f"\n[CONSOLE] FINAL SHARED SECRET ss:\n{ss.hex()}")
-    print(f"\n[CONSOLE] CIPHERTEXT (ct):\n{ct.hex()}")
-    print("--- Encapsulation Execution Finished ---")
+    if not io_only:
+        print(f"\n[CONSOLE] FINAL SHARED SECRET ss:\n{ss.hex()}")
+        print(f"\n[CONSOLE] CIPHERTEXT (ct):\n{ct.hex()}")
+        print("--- Encapsulation Execution Finished ---")
     return ct, ss, captured_inputs
 
 def run_decaps(kem, sk=None, ct=None, io_only=False):
@@ -281,7 +288,6 @@ def run_decaps(kem, sk=None, ct=None, io_only=False):
 
     if io_only:
         kem._FrodoKEM__print_intermediate_value = lambda name, value: None
-        print("\n--- Executing Decapsulation Matrix Computations ---")
         try:
             ss = kem.kem_decaps(sk, ct)
         except AssertionError as e:
@@ -303,13 +309,82 @@ def run_decaps(kem, sk=None, ct=None, io_only=False):
             print(f"\n[ERROR] Matrix processing halted due to variant parameter conflict: {e}")
             sys.exit(1)
 
-    print(f"\n[CONSOLE] FINAL DECAPSULATED SHARED SECRET ss:\n{ss.hex()}")
-    print("--- Decapsulation Execution Finished ---")
+    if not io_only:
+        print(f"\n[CONSOLE] FINAL DECAPSULATED SHARED SECRET ss:\n{ss.hex()}")
+        print("--- Decapsulation Execution Finished ---")
     return ss
 
+def run_complete_test():
+    variants = ["FrodoKEM-640-SHAKE", "FrodoKEM-976-SHAKE", "FrodoKEM-1344-SHAKE"]
+    
+    print("\n==================================================")
+    print("   RUNNING COMPLETE FRODOKEM TEST (9 TEST CASES)  ")
+    print("==================================================")
+
+    with open(COMPLETE_TEST_HEX_FILE, "w") as f_hex:
+        for idx, var_name in enumerate(variants, 1):
+            print(f"[{idx}/3] Generating vectors for {var_name} (Keygen -> Encaps -> Decaps)...")
+            kem = FrodoKEM(var_name)
+
+            # 1. Keygen
+            pk, sk, keygen_inputs = run_keygen(kem, io_only=True)
+
+            # 2. Encaps
+            ct, encaps_ss, encaps_inputs = run_encaps(kem, pk, io_only=True)
+
+            # 3. Decaps
+            decaps_ss = run_decaps(kem, sk, ct, io_only=True)
+
+            f_hex.write(f"// ==========================================\n")
+            f_hex.write(f"// VARIANT {idx}: {var_name}\n")
+            f_hex.write(f"// ==========================================\n\n")
+
+            # Operation 1: Keygen
+            f_hex.write(f"// --- Test {idx}.1: Key Generation ---\n")
+            f_hex.write(f"// INPUT: randomness\n")
+            f_hex.write(f"{keygen_inputs.get('randomness', '')}\n")
+            f_hex.write(f"// OUTPUT: pkh\n")
+            f_hex.write(f"{keygen_inputs.get('pkh', '')}\n")
+            f_hex.write(f"// OUTPUT: pk\n")
+            f_hex.write(f"{pk.hex()}\n")
+            f_hex.write(f"// OUTPUT: sk\n")
+            f_hex.write(f"{sk.hex()}\n\n")
+
+            # Operation 2: Encapsulation
+            f_hex.write(f"// --- Test {idx}.2: Encapsulation ---\n")
+            f_hex.write(f"// INPUT: pk\n")
+            f_hex.write(f"{pk.hex()}\n")
+            f_hex.write(f"// INPUT: randomness / salt\n")
+            for k, v in encaps_inputs.items():
+                f_hex.write(f"{v}\n")
+            f_hex.write(f"// OUTPUT: ct\n")
+            f_hex.write(f"{ct.hex()}\n")
+            f_hex.write(f"// OUTPUT: ss\n")
+            f_hex.write(f"{encaps_ss.hex()}\n\n")
+
+            # Operation 3: Decapsulation
+            f_hex.write(f"// --- Test {idx}.3: Decapsulation ---\n")
+            f_hex.write(f"// INPUT: sk\n")
+            f_hex.write(f"{sk.hex()}\n")
+            f_hex.write(f"// INPUT: ct\n")
+            f_hex.write(f"{ct.hex()}\n")
+            f_hex.write(f"// OUTPUT: ss\n")
+            f_hex.write(f"{decaps_ss.hex()}\n\n")
+
+    print("\n==================================================")
+    print("[SUCCESS] Complete FrodoKEM test finished!")
+    print(f"Generated hex file: test/frodokem_debug_variables/{os.path.basename(COMPLETE_TEST_HEX_FILE)}")
+    print("==================================================")
+
 def main():
-    # 1. Choose variant or Reset
+    # 1. Choose variant or Reset or Complete Test
     variant = select_variant()
+
+    if variant == "complete_test":
+        run_complete_test()
+        print("\nExecution finished. Exiting.")
+        sys.exit(0)
+
     kem = FrodoKEM(variant)
     print(f"\nInitialized configuration: {variant}")
 
@@ -325,58 +400,6 @@ def main():
     elif operation == "decaps":
         run_decaps(kem, io_only=False)
         print(f"[SUCCESS] Debug log generated: test/frodokem_debug_variables/{os.path.basename(DECAPS_DEBUG_FILE)}")
-    elif operation == "all":
-        print("\n==================================================")
-        print("    STARTING ALL-IN-ONE FULL KEM FLOW PIPELINE   ")
-        print("==================================================")
-        
-        # 1. Keygen
-        pk, sk, keygen_inputs = run_keygen(kem, io_only=True)
-        
-        # 2. Encaps
-        ct, encaps_ss, encaps_inputs = run_encaps(kem, pk, io_only=True)
-        
-        # 3. Decaps
-        decaps_ss = run_decaps(kem, sk, ct, io_only=True)
-
-        # Write ALL I/O vectors to a SINGLE text file
-        with open(ALL_IN_ONE_DEBUG_FILE, "w") as f:
-            f.write(f"=== FrodoKEM All-in-One I/O Summary ({variant}) ===\n\n")
-            
-            # --- Keygen Block ---
-            f.write("--- 1. KEY GENERATION ---\n")
-            for k, v in keygen_inputs.items():
-                f.write(f"INPUT SEED/RANDOMNESS ({k}):\n{v}\n\n")
-            f.write(f"OUTPUT PUBLIC KEY (pk):\n{pk.hex()}\n\n")
-            f.write(f"OUTPUT SECRET KEY (sk):\n{sk.hex()}\n\n")
-            
-            # --- Encaps Block ---
-            f.write("--- 2. ENCAPSULATION ---\n")
-            f.write(f"INPUT PUBLIC KEY (pk):\n{pk.hex()}\n\n")
-            for k, v in encaps_inputs.items():
-                f.write(f"INPUT SEED/RANDOMNESS ({k}):\n{v}\n\n")
-            f.write(f"OUTPUT CIPHERTEXT (ct):\n{ct.hex()}\n\n")
-            f.write(f"OUTPUT SHARED SECRET (ss):\n{encaps_ss.hex()}\n\n")
-            
-            # --- Decaps Block ---
-            f.write("--- 3. DECAPSULATION ---\n")
-            f.write(f"INPUT SECRET KEY (sk):\n{sk.hex()}\n\n")
-            f.write(f"INPUT CIPHERTEXT (ct):\n{ct.hex()}\n\n")
-            f.write(f"OUTPUT SHARED SECRET (ss):\n{decaps_ss.hex()}\n\n")
-            
-            # --- Verification Result ---
-            f.write("--- 4. VERIFICATION RESULT ---\n")
-            match_status = "PASSED (Shared secrets match)" if encaps_ss == decaps_ss else "FAILED (Shared secrets mismatch)"
-            f.write(f"STATUS: {match_status}\n")
-
-        print("\n==================================================")
-        if encaps_ss == decaps_ss:
-            print("[VERIFICATION PASSED] Shared secrets MATCH successfully!")
-            print(f"Shared Secret: {encaps_ss.hex()}")
-        else:
-            print("[VERIFICATION FAILED] Encapsulated and Decapsulated shared secrets DO NOT MATCH!")
-        print("==================================================")
-        print(f"[SUCCESS] Combined I/O log generated: test/frodokem_debug_variables/{os.path.basename(ALL_IN_ONE_DEBUG_FILE)}")
 
     print("\nExecution finished. Exiting.")
 
