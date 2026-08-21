@@ -38,6 +38,7 @@ PK_FILE = os.path.join(TARGET_TEST_FOLDER, "public_key.bin")
 SK_FILE = os.path.join(TARGET_TEST_FOLDER, "secret_key.bin")
 CT_FILE = os.path.join(TARGET_TEST_FOLDER, "ciphertext.bin")
 
+
 def select_variant():
     print("\n=== 1. SELECT FRODOKEM SHAKE VARIANT ===")
     print("1) FrodoKEM-640 (SHAKE)")
@@ -87,6 +88,7 @@ def select_variant():
 
     return variants[choice]
 
+
 def select_operation():
     print("\n=== 2. SELECT OPERATION ===")
     print("1) Key Generation (keygen)")
@@ -105,6 +107,7 @@ def select_operation():
         print(f"\n[INVALID CHOICE] '{choice}' is not a valid operation choice. Please choose 1, 2, or 3.")
         print("Exiting.")
         sys.exit(1)
+
 
 def setup_keygen_interceptors(kem):
     with open(KEYGEN_DEBUG_FILE, "w") as f:
@@ -128,6 +131,7 @@ def setup_keygen_interceptors(kem):
                 f.write(f"{name}:\n{value}\n\n")
 
     kem._FrodoKEM__print_intermediate_value = custom_print
+
 
 def setup_encaps_interceptors(kem):
     with open(ENCAPS_DEBUG_FILE, "w") as f:
@@ -165,6 +169,7 @@ def setup_encaps_interceptors(kem):
 
     kem._FrodoKEM__print_intermediate_value = custom_print
 
+
 def setup_decaps_interceptors(kem):
     with open(DECAPS_DEBUG_FILE, "w") as f:
         f.write(f"=== FrodoKEM Decapsulation Debug Dump ({kem.variant}) ===\n\n")
@@ -199,6 +204,7 @@ def setup_decaps_interceptors(kem):
 
     kem._FrodoKEM__print_intermediate_value = custom_print
 
+
 def run_keygen(kem, io_only=False):
     captured_inputs = {}
 
@@ -224,6 +230,7 @@ def run_keygen(kem, io_only=False):
     if not io_only:
         print("--- Keygen Execution Finished ---")
     return pk, sk, captured_inputs
+
 
 def run_encaps(kem, pk=None, io_only=False):
     captured_inputs = {}
@@ -271,6 +278,7 @@ def run_encaps(kem, pk=None, io_only=False):
         print("--- Encapsulation Execution Finished ---")
     return ct, ss, captured_inputs
 
+
 def run_decaps(kem, sk=None, ct=None, io_only=False):
     if sk is None:
         if not os.path.exists(SK_FILE):
@@ -314,11 +322,12 @@ def run_decaps(kem, sk=None, ct=None, io_only=False):
         print("--- Decapsulation Execution Finished ---")
     return ss
 
+
 def run_complete_test():
     variants = ["FrodoKEM-640-SHAKE", "FrodoKEM-976-SHAKE", "FrodoKEM-1344-SHAKE"]
     
     print("\n==================================================")
-    print("   RUNNING COMPLETE FRODOKEM TEST (9 TEST CASES)  ")
+    print("    RUNNING COMPLETE FRODOKEM TEST (9 TEST CASES)  ")
     print("==================================================")
 
     with open(COMPLETE_TEST_HEX_FILE, "w") as f_hex:
@@ -351,12 +360,16 @@ def run_complete_test():
             f_hex.write(f"{sk.hex()}\n\n")
 
             # Operation 2: Encapsulation
+            # Concatenate u (mu) and salt into a single line for SystemVerilog
+            u_val = encaps_inputs.get('u', encaps_inputs.get('mu', ''))
+            salt_val = next((v for k, v in encaps_inputs.items() if 'salt' in k.lower()), '')
+            u_salt_combined = u_val + salt_val
+
             f_hex.write(f"// --- Test {idx}.2: Encapsulation ---\n")
             f_hex.write(f"// INPUT: pk\n")
             f_hex.write(f"{pk.hex()}\n")
-            f_hex.write(f"// INPUT: randomness / salt\n")
-            for k, v in encaps_inputs.items():
-                f_hex.write(f"{v}\n")
+            f_hex.write(f"// INPUT: u || salt\n")
+            f_hex.write(f"{u_salt_combined}\n")
             f_hex.write(f"// OUTPUT: ct\n")
             f_hex.write(f"{ct.hex()}\n")
             f_hex.write(f"// OUTPUT: ss\n")
@@ -375,6 +388,7 @@ def run_complete_test():
     print("[SUCCESS] Complete FrodoKEM test finished!")
     print(f"Generated hex file: test/frodokem_debug_variables/{os.path.basename(COMPLETE_TEST_HEX_FILE)}")
     print("==================================================")
+
 
 def main():
     # 1. Choose variant or Reset or Complete Test
@@ -402,6 +416,7 @@ def main():
         print(f"[SUCCESS] Debug log generated: test/frodokem_debug_variables/{os.path.basename(DECAPS_DEBUG_FILE)}")
 
     print("\nExecution finished. Exiting.")
+
 
 if __name__ == '__main__':
     main()
